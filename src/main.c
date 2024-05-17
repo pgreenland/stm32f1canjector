@@ -1,4 +1,5 @@
 /* Hardware support */
+#include <libopencm3/cm3/nvic.h>
 #include <libopencm3/stm32/can.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/rcc.h>
@@ -37,6 +38,9 @@ uint8_t can_dlc = 8;
 /* Delay between frames (public for easy debugger adjustment) */
 uint32_t interframe_delay = US_PER_SEC / 5000; /* us */
 
+/* Counter */
+static uint64_t counter;
+
 /* Public functions */
 int main(void)
 {
@@ -47,25 +51,25 @@ int main(void)
 	setup_peripherals();
 
 	/* Main loop */
-	uint64_t counter = 0;
-	uint16_t last_time = (uint16_t)timer_get_counter(TIM2);
 	for (;;)
 	{
-		/* Wait for next transmission time */
-		uint16_t curr_time = (uint16_t)timer_get_counter(TIM2);
-		uint16_t time_diff = curr_time - last_time;
-		if (time_diff < interframe_delay) continue;
-		last_time = curr_time;
-
-		/* Transmit frame */
-		gpio_set(GPIOB, GPIO12);
-		if (can_transmit(CAN1, can_id, can_id_is_extended, false, can_dlc, (uint8_t*)&counter) >= 0)
-		{
-			/* Advance counter */
-			counter++;
-		}
-		gpio_clear(GPIOB, GPIO12);
+		/* Sit 'n' spin */
 	}
+}
+
+void tim2_isr(void)
+{
+	/* Transmit frame */
+	gpio_set(GPIOB, GPIO12);
+	if (can_transmit(CAN1, can_id, can_id_is_extended, false, can_dlc, (uint8_t*)&counter) >= 0)
+	{
+		/* Advance counter */
+		counter++;
+	}
+	gpio_clear(GPIOB, GPIO12);
+
+	/* Clear interrrupt flag. */
+	TIM_SR(TIM2) &= ~TIM_SR_UIF;
 }
 
 /* Private functions */
@@ -87,10 +91,6 @@ static void setup_peripherals(void)
 
 	/* Configure timing output */
 	gpio_set_mode(GPIOB, GPIO_MODE_OUTPUT_2_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO12);
-
-	/* Setup microsecond timer */
-	timer_set_prescaler(TIM2, ((rcc_apb1_frequency * 2) / US_PER_SEC) - 1);
-	timer_enable_counter(TIM2);
 
 	/* Configure CAN pin: RX (input pull-up). */
 	gpio_set_mode(GPIOA, GPIO_MODE_INPUT,
@@ -118,6 +118,16 @@ static void setup_peripherals(void)
 		/* Wait here, until the user notices */
 		for (;;) __asm__("nop");
 	}
+
+	/* Setup microsecond timer */
+	timer_set_prescaler(TIM2, ((rcc_apb1_frequency * 2) / US_PER_SEC) - 1);
+	timer_set_period(TIM2, interframe_delay - 1);
+	timer_enable_irq(TIM2, TIM_DIER_UIE);
+	timer_enable_counter(TIM2);
+
+	/* Enable timer interrupt */
+	nvic_enable_irq(NVIC_TIM2_IRQ);
+	nvic_set_priority(NVIC_TIM2_IRQ, 1);
 }
 
 /* Useful online calculator: http://www.bittiming.can-wiki.info/ */
