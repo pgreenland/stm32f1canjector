@@ -35,8 +35,8 @@ uint32_t can_id = 0x123;
 bool can_id_is_extended = false;
 uint8_t can_dlc = 8;
 
-/* Delay between frames (public for easy debugger adjustment) */
-uint32_t interframe_delay = US_PER_SEC / 5000; /* us */
+/* Frame rate (public for easy debugger adjustment) */
+uint32_t frame_rate = 100; /* fps */
 
 /* Counter */
 static uint64_t counter;
@@ -45,7 +45,7 @@ static uint64_t counter;
 int main(void)
 {
 	/* Switch to external clock with PLL  */
-	rcc_clock_setup_in_hse_8mhz_out_72mhz();
+	rcc_clock_setup_pll(&rcc_hse_configs[RCC_CLOCK_HSE8_72MHZ]);
 
 	/* Setup hardware */
 	setup_peripherals();
@@ -118,6 +118,9 @@ static void setup_peripherals(void)
 		/* Wait here, until the user notices */
 		for (;;) __asm__("nop");
 	}
+
+	/* Calculate delay between frames */
+	uint32_t interframe_delay = US_PER_SEC / frame_rate; /* us */
 
 	/* Setup microsecond timer */
 	timer_set_prescaler(TIM2, ((rcc_apb1_frequency * 2) / US_PER_SEC) - 1);
